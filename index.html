@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Closed Venue Scout — Chennai</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header>
+  <div class="logo-area">
+    <h1>Closed Venue Scout</h1>
+    <p>RESTAURANTS · CAFES · COFFEE SHOPS · CHENNAI</p>
+  </div>
+  <div class="api-badge"><span>●</span> Google Places API Connected</div>
+</header>
+
+<main>
+  <!-- LEFT PANEL -->
+  <div class="panel">
+    <div>
+      <div class="section-label">Target Area</div>
+      <div class="input-group">
+        <label>Area Name or Pincode</label>
+        <input type="text" id="areaInput" placeholder="e.g. Anna Nagar, 600040…" />
+        <p class="hint">Enter any Chennai neighbourhood, landmark, or 6-digit pincode.</p>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">Search Radius</div>
+      <div class="input-group">
+        <label>Radius (metres)</label>
+        <select id="radiusInput">
+          <option value="500">500 m — Hyperlocal</option>
+          <option value="1000" selected>1,000 m — Neighbourhood</option>
+          <option value="2000">2,000 m — Wide area</option>
+          <option value="3000">3,000 m — District-level</option>
+        </select>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">Status Filter</div>
+      <div class="filter-row">
+        <label class="checkbox-item">
+          <input type="checkbox" id="filterPerm" checked>
+          <span class="dot dot-perm"></span>
+          <span>Permanently Closed</span>
+        </label>
+        <label class="checkbox-item">
+          <input type="checkbox" id="filterTemp" checked>
+          <span class="dot dot-temp"></span>
+          <span>Temporarily Closed</span>
+        </label>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="stats">
+      <div class="stat-row">
+        <span class="stat-label">RESULTS FOUND</span>
+        <span class="stat-val" id="statTotal">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">PERM. CLOSED</span>
+        <span class="stat-val" id="statPerm">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">TEMP. CLOSED</span>
+        <span class="stat-val" id="statTemp">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">API CALLS MADE</span>
+        <span class="stat-val" id="statCalls">—</span>
+      </div>
+    </div>
+
+    <button class="run-btn" id="runBtn" onclick="startSearch()">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      Run Search
+    </button>
+
+    <button class="export-btn" id="exportBtn" onclick="exportCSV()">⬇ Export as CSV</button>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="results-area">
+    <div class="results-header">
+      <div class="results-title">Results <span id="resultCount"></span></div>
+    </div>
+
+    <div class="error-msg" id="errorMsg"></div>
+
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">🗺</div>
+      <div class="empty-text">Enter an area and hit Run Search.<br>Results will appear here.</div>
+    </div>
+
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-spinner"></div>
+      <div class="progress-bar-outer">
+        <div class="progress-bar-inner" id="progressBar"></div>
+      </div>
+      <div class="progress-text" id="progressText">Initialising…</div>
+    </div>
+
+    <div class="table-wrap" id="tableWrap">
+      <div class="search-bar">
+        <input type="text" id="tableSearch" placeholder="Filter by name or address…" oninput="filterTable()" />
+      </div>
+      <div style="overflow-x:auto; flex:1;">
+        <table id="resultsTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Name</th>
+              <th>Address</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Rating</th>
+              <th>Maps</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div id="map-placeholder"></div>
+
+<!-- app.js before the Maps SDK so initMap is defined when the callback fires -->
+<script src="app.js"></script>
+<script
+  async
+  defer
+  src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDqKeq3a0O__Mm7EQLy0zrHYuJUq8Ly1Ps&libraries=places&callback=initMap">
+</script>
+
+</body>
+</html>
