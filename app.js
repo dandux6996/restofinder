@@ -98,27 +98,74 @@ function geocodeArea(query) {
   });
 }
 
-// ── Nearby search (with pagination) ─────────────────────────────────────
-function nearbySearch(location, radius, type) {
+// ── Grid tiling config ────────────────────────────────────────────────────
+// Each radius gets a grid of sub-circles so the whole area is covered.
+// sub-radius is small enough to get ≤60 results per point (3 pages × 20).
+// Points are spaced at ~0.7× sub-radius to ensure generous overlap.
+//
+//  selectedRadius | grid  | sub-radius | ~points | ~max API calls
+//  500 m          |  1×1  |   500 m    |    1    |    6
+//  1000 m         |  3×3  |   500 m    |    9    |   54
+//  2000 m         |  5×5  |   600 m    |   25    |  150
+//  3000 m         |  7×7  |   600 m    |   49    |  294
+//
+const GRID_CONFIG = {
+  500:  { grid: 1, subRadius: 500  },
+  1000: { grid: 3, subRadius: 500  },
+  2000: { grid: 5, subRadius: 600  },
+  3000: { grid: 7, subRadius: 600  },
+};
+
+// Metres per degree (approximate for Chennai lat ~13°)
+const M_PER_LAT = 111000;
+const M_PER_LNG = 107900;
+
+function buildGridPoints(center, totalRadius) {
+  const { grid, subRadius } = GRID_CONFIG[totalRadius] || GRID_CONFIG[1000];
+  if (grid === 1) return [center];
+
+  const spacing = subRadius * 0.75; // 75% of sub-radius = good overlap
+  const half    = Math.floor(grid / 2);
+  const points  = [];
+
+  for (let row = -half; row <= half; row++) {
+    for (let col = -half; col <= half; col++) {
+      const lat = center.lat() + (row * spacing) / M_PER_LAT;
+      const lng = center.lng() + (col * spacing) / M_PER_LNG;
+      // Only include points whose centre is within the user's chosen radius
+      const distM = Math.sqrt(
+        Math.pow(row * spacing, 2) + Math.pow(col * spacing, 2)
+      );
+      if (distM <= totalRadius + subRadius * 0.5) {
+        points.push(new google.maps.LatLng(lat, lng));
+      }
+    }
+  }
+  return points;
+}
+
+// ── Single-point nearby search with full pagination ───────────────────────
+function nearbySearchOnePoint(location, radius, type) {
   return new Promise((resolve) => {
     apiCallCount++;
     const allPlaces = [];
 
-    function handleResults(results, status, pagination) {
+    function handlePage(results, status, pagination) {
       if (status === google.maps.places.PlacesServiceStatus.OK && results) {
         allPlaces.push(...results);
         if (pagination && pagination.hasNextPage) {
           apiCallCount++;
-          setTimeout(() => pagination.nextPage(), 2000);
+          // Google requires a short delay before calling nextPage()
+          setTimeout(() => pagination.nextPage(), 2200);
         } else {
           resolve(allPlaces);
         }
       } else {
-        resolve(allPlaces);
+        resolve(allPlaces); // ZERO_RESULTS or error — just return empty
       }
     }
 
-    placesService.nearbySearch({ location, radius, type }, handleResults);
+    placesService.nearbySearch({ location, radius, type }, handlePage);
   });
 }
 
@@ -154,21 +201,32 @@ async function startSearch() {
       throw new Error('Maps SDK not ready — please wait a moment and try again.');
     }
 
-    setProgress(15, `Locating "${area}" in Chennai…`);
+    setProgress(10, `Locating "${area}" in Chennai…`);
     const center = await geocodeArea(area);
 
+    // Build grid of search points covering the full radius
+    const gridPoints = buildGridPoints(center, selectedRadius);
+    const { subRadius } = GRID_CONFIG[selectedRadius] || GRID_CONFIG[1000];
     const types  = ['restaurant', 'cafe'];
     const allRaw = [];
+    const total  = gridPoints.length * types.length;
+    let   done   = 0;
 
-    for (let i = 0; i < types.length; i++) {
-      setProgress(25 + i * 28, `Scanning ${types[i]}s within ${selectedRadius >= 1000 ? selectedRadius/1000 + ' km' : selectedRadius + ' m'}…`);
-      const res = await nearbySearch(center, selectedRadius, types[i]);
-      allRaw.push(...res);
+    setProgress(15, `Scanning ${gridPoints.length} grid point${gridPoints.length > 1 ? 's' : ''} across the area…`);
+
+    for (const point of gridPoints) {
+      for (const type of types) {
+        done++;
+        const pct = 15 + Math.round((done / total) * 70);
+        setProgress(pct, `Scanning point ${done}/${total} — ${type}s…`);
+        const res = await nearbySearchOnePoint(point, subRadius, type);
+        allRaw.push(...res);
+      }
     }
 
-    setProgress(82, 'Filtering closed venues…');
+    setProgress(88, 'Deduplicating & filtering…');
 
-    // Deduplicate
+    // Deduplicate by place_id
     const seen    = new Set();
     const deduped = allRaw.filter(p => {
       if (seen.has(p.place_id)) return false;
@@ -176,7 +234,7 @@ async function startSearch() {
       return true;
     });
 
-    // Filter by status
+    // Filter by closed status
     const filtered = deduped.filter(p => {
       const s = p.business_status;
       if (filterPerm && s === 'CLOSED_PERMANENTLY') return true;
@@ -185,9 +243,8 @@ async function startSearch() {
     });
 
     allResults = filtered;
-    setProgress(100, 'Done!');
+    setProgress(100, `Found ${filtered.length} closed venue${filtered.length !== 1 ? 's' : ''}.`);
 
-    // Update stats
     const permCount = filtered.filter(p => p.business_status === 'CLOSED_PERMANENTLY').length;
     const tempCount = filtered.filter(p => p.business_status === 'CLOSED_TEMPORARILY').length;
     document.getElementById('statTotal').textContent = filtered.length;
