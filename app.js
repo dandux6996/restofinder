@@ -11,8 +11,9 @@ let apiCallCount  = 0;
 let selectedRadius = 1000;
 
 // Filter toggles
-let filterPerm = true;
-let filterTemp = true;
+let filterPerm       = true;
+let filterTemp       = true;
+let filterMinRatings = 10;
 
 // ── initMap — called by Google Maps SDK ─────────────────────────────────
 function initMap() {
@@ -52,7 +53,14 @@ document.querySelectorAll('#radiusPills .pill-btn').forEach(btn => {
   });
 });
 
-// ── Status filter toggle ─────────────────────────────────────────────────
+// ── Ratings filter pills ──────────────────────────────────────────────────
+document.querySelectorAll('#ratingsPills .pill-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#ratingsPills .pill-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    filterMinRatings = parseInt(btn.dataset.val);
+  });
+});
 function toggleFilter(type) {
   if (type === 'perm') {
     filterPerm = !filterPerm;
@@ -234,12 +242,14 @@ async function startSearch() {
       return true;
     });
 
-    // Filter by closed status
+    // Filter by closed status + minimum ratings
     const filtered = deduped.filter(p => {
       const s = p.business_status;
-      if (filterPerm && s === 'CLOSED_PERMANENTLY') return true;
-      if (filterTemp && s === 'CLOSED_TEMPORARILY') return true;
-      return false;
+      const statusOk = (filterPerm && s === 'CLOSED_PERMANENTLY') ||
+                       (filterTemp && s === 'CLOSED_TEMPORARILY');
+      if (!statusOk) return false;
+      const ratings = p.user_ratings_total || 0;
+      return ratings >= filterMinRatings;
     });
 
     allResults = filtered;
