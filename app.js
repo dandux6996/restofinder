@@ -2,15 +2,12 @@
 const API_KEY = 'AIzaSyDqKeq3a0O__Mm7EQLy0zrHYuJUq8Ly1Ps';
 
 // ── State ───────────────────────────────────────────────────────────────
-let placesService = null;
-let geocoder      = null;
-let allResults    = [];
-let apiCallCount  = 0;
+let placesService  = null;
+let geocoder       = null;
+let allClosed      = [];   // all closed venues after dedup — source of truth, never filtered
+let apiCallCount   = 0;
 
-// Selected radius from pills
-let selectedRadius = 1000;
-
-// Filter toggles
+let selectedRadius   = 1000;
 let filterPerm       = true;
 let filterTemp       = true;
 let filterMinRatings = 10;
@@ -25,7 +22,6 @@ function initMap() {
   placesService = new google.maps.places.PlacesService(map);
   geocoder      = new google.maps.Geocoder();
 
-  // Autocomplete biased to Chennai
   const input         = document.getElementById('areaInput');
   const chennaiBounds = new google.maps.LatLngBounds(
     new google.maps.LatLng(12.8, 79.97),
@@ -53,14 +49,17 @@ document.querySelectorAll('#radiusPills .pill-btn').forEach(btn => {
   });
 });
 
-// ── Ratings filter pills ──────────────────────────────────────────────────
+// ── Ratings filter pills — re-render on change ───────────────────────────
 document.querySelectorAll('#ratingsPills .pill-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('#ratingsPills .pill-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     filterMinRatings = parseInt(btn.dataset.val);
+    if (allClosed.length > 0) applyFiltersAndRender();
   });
 });
+
+// ── Status filter toggle — re-render on change ───────────────────────────
 function toggleFilter(type) {
   if (type === 'perm') {
     filterPerm = !filterPerm;
@@ -69,6 +68,33 @@ function toggleFilter(type) {
     filterTemp = !filterTemp;
     document.getElementById('pillTemp').classList.toggle('active', filterTemp);
   }
+  if (allClosed.length > 0) applyFiltersAndRender();
+}
+
+// ── Apply all display filters and re-render ───────────────────────────────
+function applyFiltersAndRender() {
+  const filtered = allClosed.filter(p => {
+    // Status filter
+    const s = p.business_status;
+    const statusOk = (filterPerm && s === 'CLOSED_PERMANENTLY') ||
+                     (filterTemp && s === 'CLOSED_TEMPORARILY');
+    if (!statusOk) return false;
+
+    // Ratings filter — treat missing/undefined as 0
+    const ratingCount = (p.user_ratings_total != null && !isNaN(p.user_ratings_total))
+      ? Number(p.user_ratings_total)
+      : 0;
+    return ratingCount >= filterMinRatings;
+  });
+
+  // Update stats to reflect current filter view
+  const permCount = filtered.filter(p => p.business_status === 'CLOSED_PERMANENTLY').length;
+  const tempCount = filtered.filter(p => p.business_status === 'CLOSED_TEMPORARILY').length;
+  document.getElementById('statTotal').textContent = filtered.length;
+  document.getElementById('statPerm').textContent  = permCount;
+  document.getElementById('statTemp').textContent  = tempCount;
+
+  renderCards(filtered);
 }
 
 // ── UI helpers ───────────────────────────────────────────────────────────
@@ -78,9 +104,8 @@ function setProgress(pct, text) {
 }
 
 function showError(msg) {
-  const el = document.getElementById('errorState');
   document.getElementById('errorMsg').textContent = msg;
-  el.classList.add('visible');
+  document.getElementById('errorState').classList.add('visible');
 }
 
 function clearError() {
@@ -88,9 +113,9 @@ function clearError() {
 }
 
 function showState(name) {
-  document.getElementById('emptyState').style.display    = name === 'empty'    ? 'flex'  : 'none';
+  document.getElementById('emptyState').style.display  = name === 'empty'    ? 'flex' : 'none';
   document.getElementById('progressState').classList.toggle('visible', name === 'progress');
-  document.getElementById('resultsGrid').style.display   = name === 'results'  ? 'grid'  : 'none';
+  document.getElementById('resultsGrid').style.display = name === 'results'  ? 'grid' : 'none';
 }
 
 // ── Geocode ───────────────────────────────────────────────────────────────
@@ -107,24 +132,12 @@ function geocodeArea(query) {
 }
 
 // ── Grid tiling config ────────────────────────────────────────────────────
-// Each radius gets a grid of sub-circles so the whole area is covered.
-// sub-radius is small enough to get ≤60 results per point (3 pages × 20).
-// Points are spaced at ~0.7× sub-radius to ensure generous overlap.
-//
-//  selectedRadius | grid  | sub-radius | ~points | ~max API calls
-//  500 m          |  1×1  |   500 m    |    1    |    6
-//  1000 m         |  3×3  |   500 m    |    9    |   54
-//  2000 m         |  5×5  |   600 m    |   25    |  150
-//  3000 m         |  7×7  |   600 m    |   49    |  294
-//
 const GRID_CONFIG = {
-  500:  { grid: 1, subRadius: 500  },
-  1000: { grid: 3, subRadius: 500  },
-  2000: { grid: 5, subRadius: 600  },
-  3000: { grid: 7, subRadius: 600  },
+  500:  { grid: 1, subRadius: 500 },
+  1000: { grid: 3, subRadius: 500 },
+  2000: { grid: 5, subRadius: 600 },
+  3000: { grid: 7, subRadius: 600 },
 };
-
-// Metres per degree (approximate for Chennai lat ~13°)
 const M_PER_LAT = 111000;
 const M_PER_LNG = 107900;
 
@@ -132,20 +145,18 @@ function buildGridPoints(center, totalRadius) {
   const { grid, subRadius } = GRID_CONFIG[totalRadius] || GRID_CONFIG[1000];
   if (grid === 1) return [center];
 
-  const spacing = subRadius * 0.75; // 75% of sub-radius = good overlap
+  const spacing = subRadius * 0.75;
   const half    = Math.floor(grid / 2);
   const points  = [];
 
   for (let row = -half; row <= half; row++) {
     for (let col = -half; col <= half; col++) {
-      const lat = center.lat() + (row * spacing) / M_PER_LAT;
-      const lng = center.lng() + (col * spacing) / M_PER_LNG;
-      // Only include points whose centre is within the user's chosen radius
-      const distM = Math.sqrt(
-        Math.pow(row * spacing, 2) + Math.pow(col * spacing, 2)
-      );
+      const distM = Math.sqrt(Math.pow(row * spacing, 2) + Math.pow(col * spacing, 2));
       if (distM <= totalRadius + subRadius * 0.5) {
-        points.push(new google.maps.LatLng(lat, lng));
+        points.push(new google.maps.LatLng(
+          center.lat() + (row * spacing) / M_PER_LAT,
+          center.lng() + (col * spacing) / M_PER_LNG
+        ));
       }
     }
   }
@@ -163,13 +174,12 @@ function nearbySearchOnePoint(location, radius, type) {
         allPlaces.push(...results);
         if (pagination && pagination.hasNextPage) {
           apiCallCount++;
-          // Google requires a short delay before calling nextPage()
           setTimeout(() => pagination.nextPage(), 2200);
         } else {
           resolve(allPlaces);
         }
       } else {
-        resolve(allPlaces); // ZERO_RESULTS or error — just return empty
+        resolve(allPlaces);
       }
     }
 
@@ -189,13 +199,8 @@ async function startSearch() {
   const area = document.getElementById('areaInput').value.trim();
   if (!area) return;
 
-  if (!filterPerm && !filterTemp) {
-    showError('Select at least one status filter (Permanently or Temporarily Closed).');
-    return;
-  }
-
   clearError();
-  allResults   = [];
+  allClosed    = [];
   apiCallCount = 0;
 
   document.getElementById('statsBar').classList.remove('visible');
@@ -212,7 +217,6 @@ async function startSearch() {
     setProgress(10, `Locating "${area}" in Chennai…`);
     const center = await geocodeArea(area);
 
-    // Build grid of search points covering the full radius
     const gridPoints = buildGridPoints(center, selectedRadius);
     const { subRadius } = GRID_CONFIG[selectedRadius] || GRID_CONFIG[1000];
     const types  = ['restaurant', 'cafe'];
@@ -220,50 +224,38 @@ async function startSearch() {
     const total  = gridPoints.length * types.length;
     let   done   = 0;
 
-    setProgress(15, `Scanning ${gridPoints.length} grid point${gridPoints.length > 1 ? 's' : ''} across the area…`);
-
     for (const point of gridPoints) {
       for (const type of types) {
         done++;
-        const pct = 15 + Math.round((done / total) * 70);
-        setProgress(pct, `Scanning point ${done}/${total} — ${type}s…`);
+        setProgress(15 + Math.round((done / total) * 70), `Scanning point ${done}/${total} — ${type}s…`);
         const res = await nearbySearchOnePoint(point, subRadius, type);
         allRaw.push(...res);
       }
     }
 
-    setProgress(88, 'Deduplicating & filtering…');
+    setProgress(88, 'Deduplicating…');
 
     // Deduplicate by place_id
-    const seen    = new Set();
+    const seen = new Set();
     const deduped = allRaw.filter(p => {
       if (seen.has(p.place_id)) return false;
       seen.add(p.place_id);
       return true;
     });
 
-    // Filter by closed status + minimum ratings
-    const filtered = deduped.filter(p => {
+    // Keep only closed venues — NO ratings filter here, that's applied at render time
+    allClosed = deduped.filter(p => {
       const s = p.business_status;
-      const statusOk = (filterPerm && s === 'CLOSED_PERMANENTLY') ||
-                       (filterTemp && s === 'CLOSED_TEMPORARILY');
-      if (!statusOk) return false;
-      const ratings = p.user_ratings_total || 0;
-      return ratings >= filterMinRatings;
+      return s === 'CLOSED_PERMANENTLY' || s === 'CLOSED_TEMPORARILY';
     });
 
-    allResults = filtered;
-    setProgress(100, `Found ${filtered.length} closed venue${filtered.length !== 1 ? 's' : ''}.`);
+    setProgress(100, `Found ${allClosed.length} closed venue${allClosed.length !== 1 ? 's' : ''}.`);
 
-    const permCount = filtered.filter(p => p.business_status === 'CLOSED_PERMANENTLY').length;
-    const tempCount = filtered.filter(p => p.business_status === 'CLOSED_TEMPORARILY').length;
-    document.getElementById('statTotal').textContent = filtered.length;
-    document.getElementById('statPerm').textContent  = permCount;
-    document.getElementById('statTemp').textContent  = tempCount;
     document.getElementById('statCalls').textContent = apiCallCount;
     document.getElementById('statsBar').classList.add('visible');
 
-    renderCards(filtered);
+    // Apply display filters (status + ratings) and render
+    applyFiltersAndRender();
 
   } catch (err) {
     showError(err.message);
@@ -281,8 +273,10 @@ function renderCards(data) {
 
   if (data.length === 0) {
     showState('empty');
-    document.getElementById('emptySubText').textContent =
-      'No closed venues found here. Try a wider radius or different area.';
+    const minR = filterMinRatings;
+    document.getElementById('emptySubText').textContent = allClosed.length > 0
+      ? `No venues match the current filters. ${allClosed.length} closed venue${allClosed.length !== 1 ? 's' : ''} found total — try loosening the Min. Ratings filter.`
+      : 'No closed venues found here. Try a wider radius or different area.';
     return;
   }
 
@@ -290,9 +284,10 @@ function renderCards(data) {
   document.getElementById('exportBtn').style.display = 'flex';
 
   data.forEach((place, i) => {
-    const isPerm    = place.business_status === 'CLOSED_PERMANENTLY';
-    const mapsUrl   = `https://www.google.com/maps/place/?q=place_id:${place.place_id}`;
-    const typeLabel = getReadableType(place.types);
+    const isPerm      = place.business_status === 'CLOSED_PERMANENTLY';
+    const mapsUrl     = `https://www.google.com/maps/place/?q=place_id:${place.place_id}`;
+    const typeLabel   = getReadableType(place.types);
+    const ratingCount = (place.user_ratings_total != null) ? Number(place.user_ratings_total) : 0;
 
     const card = document.createElement('div');
     card.className = `venue-card ${isPerm ? 'perm' : 'temp'}`;
@@ -303,7 +298,7 @@ function renderCards(data) {
     const ratingHtml = place.rating
       ? `<span class="star-icon">★</span>
          <span>${place.rating}</span>
-         <span class="rating-count">(${place.user_ratings_total || 0})</span>`
+         <span class="rating-count">(${ratingCount.toLocaleString()})</span>`
       : `<span style="color:var(--text-3)">No rating</span>`;
 
     card.innerHTML = `
@@ -335,25 +330,33 @@ function renderCards(data) {
         </div>
       </div>
     `;
-
     grid.appendChild(card);
   });
 }
 
-// ── Filter table ──────────────────────────────────────────────────────────
+// ── Text search filter ────────────────────────────────────────────────────
 function filterTable() {
   const q = document.getElementById('tableSearch').value.toLowerCase();
   document.querySelectorAll('.venue-card').forEach(card => {
-    const match = card.dataset.name.includes(q) || card.dataset.addr.includes(q);
-    card.style.display = match ? '' : 'none';
+    card.style.display = (card.dataset.name.includes(q) || card.dataset.addr.includes(q)) ? '' : 'none';
   });
 }
 
 // ── Export CSV ────────────────────────────────────────────────────────────
 function exportCSV() {
-  if (!allResults.length) return;
+  // Export the currently filtered view, not allClosed
+  const visible = [...document.querySelectorAll('.venue-card')]
+    .filter(c => c.style.display !== 'none')
+    .map(c => {
+      const idx = parseInt(c.querySelector('.card-num').textContent) - 1;
+      return allClosed.find(p => (p.name || '').toLowerCase() === c.dataset.name);
+    })
+    .filter(Boolean);
+
+  if (!visible.length) return;
+
   const rows = [['Name', 'Address', 'Type', 'Status', 'Rating', 'Total Ratings', 'Place ID', 'Maps URL']];
-  allResults.forEach(p => {
+  visible.forEach(p => {
     rows.push([
       `"${p.name}"`,
       `"${p.vicinity || ''}"`,
@@ -369,7 +372,6 @@ function exportCSV() {
   const blob = new Blob([csv], { type: 'text/csv' });
   const a    = document.createElement('a');
   a.href     = URL.createObjectURL(blob);
-  const area = document.getElementById('areaInput').value.replace(/\s+/g, '_');
-  a.download = `closed_venues_${area}_${Date.now()}.csv`;
+  a.download = `closed_venues_${document.getElementById('areaInput').value.replace(/\s+/g, '_')}_${Date.now()}.csv`;
   a.click();
 }
