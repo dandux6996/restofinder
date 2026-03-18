@@ -65,7 +65,14 @@
       </div>
       <div class="filter-sep"></div>
       <div class="filter-group">
-        <span class="filter-label">Show</span>
+        <span class="filter-label">Min. Ratings</span>
+        <div class="pill-group" id="ratingsPills">
+          <button class="pill-btn" data-val="0">Any</button>
+          <button class="pill-btn active" data-val="10">10+</button>
+          <button class="pill-btn" data-val="50">50+</button>
+          <button class="pill-btn" data-val="100">100+</button>
+        </div>
+      </div>
         <div class="pill-group">
           <button class="pill-btn status-pill active perm-pill" id="pillPerm" onclick="toggleFilter('perm')">
             <span class="sdot sdot-red"></span> Permanently Closed
