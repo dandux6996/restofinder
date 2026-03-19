@@ -116,6 +116,18 @@
         </svg>
         Export CSV
       </button>
+      <button class="export-btn kml-btn" id="exportKmlBtn" onclick="exportKML()">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>
+        </svg>
+        Export for My Maps
+      </button>
+      <button class="export-btn kml-btn" id="exportKmlBtn" onclick="exportKML()">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>
+        </svg>
+        Export KML → My Maps
+      </button>
     </div>
   </div>
 </div>
@@ -151,6 +163,21 @@
   <div class="error-state" id="errorState">
     <span class="error-icon">!</span>
     <p class="error-msg" id="errorMsg">Something went wrong.</p>
+  </div>
+
+  <!-- My Maps import instructions banner -->
+  <div class="import-banner" id="importBanner">
+    <div class="import-banner-icon">🗺️</div>
+    <div class="import-banner-text">
+      <strong>KML downloaded — import into Google My Maps</strong>
+      <ol>
+        <li>Go to <a href="https://mymaps.google.com" target="_blank">mymaps.google.com</a> and click <em>Create a new map</em></li>
+        <li>Click <em>Import</em> in the left panel</li>
+        <li>Drag and drop the downloaded <code>.kml</code> file</li>
+        <li>Your venues appear as pins — the map is named after the locality</li>
+      </ol>
+    </div>
+    <button class="import-banner-close" onclick="document.getElementById('importBanner').classList.remove('visible')">✕</button>
   </div>
 
   <!-- Results grid -->
