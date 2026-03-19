@@ -371,6 +371,43 @@ header, section, main, .stats-bar { position: relative; z-index: 2; }
   white-space: nowrap;
 }
 .export-btn:hover { border-color: var(--amber); color: var(--amber); }
+.kml-btn:hover    { border-color: #34a853; color: #34a853; }
+
+/* Import instructions banner */
+.import-banner {
+  display: none;
+  align-items: flex-start;
+  gap: 14px;
+  background: rgba(52,168,83,0.08);
+  border: 1px solid rgba(52,168,83,0.25);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  animation: slide-down 0.3s ease both;
+}
+.import-banner.visible { display: flex; }
+.import-banner-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.import-banner-text { font-size: 13px; color: #7dcea0; line-height: 1.7; }
+.import-banner-text strong { color: #34a853; display: block; margin-bottom: 4px; font-size: 14px; }
+.import-banner-text ol { padding-left: 16px; margin-top: 4px; }
+.import-banner-text li { margin-bottom: 2px; }
+.import-banner-text a { color: #34a853; }
+.import-banner-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #7dcea0;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 0 0 8px;
+  flex-shrink: 0;
+}
+.kml-btn:hover    { border-color: #4caf50; color: #4caf50; }
 
 /* ── Main content ───────────────────────────────────────────────────────── */
 .main-content {
