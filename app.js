@@ -189,7 +189,7 @@ function nearbySearchOnePoint(location, radius, type) {
 
 // ── Type label ────────────────────────────────────────────────────────────
 function getReadableType(types) {
-  const nice = ['restaurant', 'cafe', 'bar', 'bakery', 'food', 'meal_takeaway', 'meal_delivery'];
+  const nice = ['restaurant', 'cafe', 'bar', 'bakery', 'ice_cream_shop', 'food', 'meal_takeaway', 'meal_delivery'];
   const found = (types || []).filter(t => nice.includes(t));
   return (found[0] || types?.[0] || 'venue').replace(/_/g, ' ');
 }
@@ -220,7 +220,7 @@ async function startSearch() {
 
     const gridPoints = buildGridPoints(center, selectedRadius);
     const { subRadius } = GRID_CONFIG[selectedRadius] || GRID_CONFIG[1000];
-    const types  = ['restaurant', 'cafe'];
+    const types  = ['restaurant', 'cafe', 'ice_cream_shop'];
     const allRaw = [];
     const total  = gridPoints.length * types.length;
     let   done   = 0;
