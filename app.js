@@ -220,7 +220,7 @@ async function startSearch() {
 
     const gridPoints = buildGridPoints(center, selectedRadius);
     const { subRadius } = GRID_CONFIG[selectedRadius] || GRID_CONFIG[1000];
-    const types  = ['restaurant', 'cafe', 'ice_cream_shop'];
+    const types  = ['restaurant', 'cafe', 'ice_cream_shop', 'food'];
     const allRaw = [];
     const total  = gridPoints.length * types.length;
     let   done   = 0;
