@@ -189,7 +189,7 @@ function nearbySearchOnePoint(location, radius, type) {
 
 // ── Type label ────────────────────────────────────────────────────────────
 function getReadableType(types) {
-  const nice = ['restaurant', 'cafe', 'bar', 'bakery', 'ice_cream_shop', 'food', 'meal_takeaway', 'meal_delivery'];
+  const nice = ['restaurant', 'cafe', 'bar', 'bakery', 'ice_cream_shop'];
   const found = (types || []).filter(t => nice.includes(t));
   return (found[0] || types?.[0] || 'venue').replace(/_/g, ' ');
 }
