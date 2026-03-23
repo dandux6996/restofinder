@@ -189,7 +189,7 @@ function nearbySearchOnePoint(location, radius, type) {
 
 // ── Type label ────────────────────────────────────────────────────────────
 function getReadableType(types) {
-  const nice = ['restaurant', 'cafe', 'bar', 'bakery', 'ice_cream_shop'];
+  const nice = ['restaurant', 'cafe', 'bar', 'bakery', 'ice_cream_shop', 'food', 'meal_takeaway', 'meal_delivery'];
   const found = (types || []).filter(t => nice.includes(t));
   return (found[0] || types?.[0] || 'venue').replace(/_/g, ' ');
 }
@@ -244,8 +244,14 @@ async function startSearch() {
       return true;
     });
 
-    // Keep only closed venues — NO ratings filter here, that's applied at render time
-    allClosed = deduped.filter(p => {
+    // Strict type filter — discard anything not actually a restaurant/cafe/ice cream shop
+    const TARGET_TYPES = new Set(['restaurant', 'cafe', 'ice_cream_shop']);
+    const typed = deduped.filter(p =>
+      (p.types || []).some(t => TARGET_TYPES.has(t))
+    );
+
+    // Keep only closed venues — NO ratings filter here, that is applied at render time
+    allClosed = typed.filter(p => {
       const s = p.business_status;
       return s === 'CLOSED_PERMANENTLY' || s === 'CLOSED_TEMPORARILY';
     });
