@@ -174,7 +174,9 @@ function nearbySearchOnePoint(location, radius, type) {
         allPlaces.push(...results);
         if (pagination && pagination.hasNextPage) {
           apiCallCount++;
-          setTimeout(() => pagination.nextPage(), 2200);
+          // Must pass handlePage explicitly — nextPage() without a callback
+          // silently drops pages 2 and 3
+          setTimeout(() => pagination.nextPage(handlePage), 2200);
         } else {
           resolve(allPlaces);
         }
