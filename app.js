@@ -1,16 +1,99 @@
 // ── Config ──────────────────────────────────────────────────────────────
 const API_KEY = 'AIzaSyDqKeq3a0O__Mm7EQLy0zrHYuJUq8Ly1Ps';
 
+// ── History (localStorage) ───────────────────────────────────────────────
+const HISTORY_KEY = 'venueScout_history';
+let currentHistory = {};
+
+function loadHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '{}'); }
+  catch { return {}; }
+}
+
+function saveHistory(h) {
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h)); }
+  catch(e) { console.warn('History save failed — localStorage may be full:', e); }
+}
+
+function recordAndDiff(places) {
+  const history = loadHistory();
+  const now = Date.now();
+  places.forEach(p => {
+    if (!history[p.place_id]) history[p.place_id] = { name: p.name, snaps: [] };
+    history[p.place_id].snaps.push({
+      ts:      now,
+      photos:  p.photos?.length ?? 0,
+      ratings: p.user_ratings_total ?? 0
+    });
+    // Cap at 20 snapshots per venue
+    if (history[p.place_id].snaps.length > 20)
+      history[p.place_id].snaps = history[p.place_id].snaps.slice(-20);
+  });
+  saveHistory(history);
+  currentHistory = history;
+}
+
+// Delta between latest two snapshots for a venue
+function getDelta(placeId) {
+  const entry = currentHistory[placeId];
+  if (!entry || entry.snaps.length < 2) return null;
+  const s    = entry.snaps;
+  const cur  = s[s.length - 1];
+  const prev = s[s.length - 2];
+  return {
+    photoDelta:   cur.photos  - prev.photos,
+    ratingsDelta: cur.ratings - prev.ratings,
+    curPhotos:    cur.photos,
+    curRatings:   cur.ratings,
+    prevPhotos:   prev.photos,
+    prevRatings:  prev.ratings,
+    runCount:     s.length,
+    daysSince:    Math.max(1, Math.round((cur.ts - prev.ts) / 86400000))
+  };
+}
+
+// Total change first→latest. 0 = completely stagnant. -1 = no history yet.
+function getStagnancyScore(placeId) {
+  const entry = currentHistory[placeId];
+  if (!entry || entry.snaps.length < 2) return -1;
+  const first  = entry.snaps[0];
+  const latest = entry.snaps[entry.snaps.length - 1];
+  return (latest.photos - first.photos) + (latest.ratings - first.ratings);
+}
+
+function updateHistoryBadge() {
+  const tracked = Object.keys(currentHistory).length;
+  const el = document.getElementById('historyBadge');
+  if (el) el.textContent = `${tracked} tracked`;
+}
+
+function clearHistory() {
+  if (!confirm('Clear all scan history? This cannot be undone.')) return;
+  localStorage.removeItem(HISTORY_KEY);
+  currentHistory = {};
+  updateHistoryBadge();
+  if (allClosed.length > 0) applyFiltersAndRender();
+}
+
 // ── State ───────────────────────────────────────────────────────────────
 let placesService  = null;
 let geocoder       = null;
-let allClosed      = [];   // all closed venues after dedup — source of truth, never filtered
+let allClosed      = [];   // all closed venues after dedup
 let apiCallCount   = 0;
+let sortMode       = 'default'; // 'default' | 'stagnant'
 
 let selectedRadius   = 1000;
 let filterPerm       = true;
 let filterTemp       = true;
 let filterMinRatings = 10;
+
+// ── Sort toggle ──────────────────────────────────────────────────────────
+function setSort(mode) {
+  sortMode = mode;
+  document.getElementById('sortDefault').classList.toggle('active', mode === 'default');
+  document.getElementById('sortStagnant').classList.toggle('active', mode === 'stagnant');
+  if (allClosed.length > 0) applyFiltersAndRender();
+}
 
 // ── initMap — called by Google Maps SDK ─────────────────────────────────
 function initMap() {
@@ -37,6 +120,10 @@ function initMap() {
     const place = ac.getPlace();
     if (place && place.name) input.value = place.name;
   });
+
+  // Load history badge on init
+  currentHistory = loadHistory();
+  updateHistoryBadge();
 }
 window.initMap = initMap;
 
@@ -49,7 +136,7 @@ document.querySelectorAll('#radiusPills .pill-btn').forEach(btn => {
   });
 });
 
-// ── Ratings filter pills — re-render on change ───────────────────────────
+// ── Ratings filter pills ─────────────────────────────────────────────────
 document.querySelectorAll('#ratingsPills .pill-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('#ratingsPills .pill-btn').forEach(b => b.classList.remove('active'));
@@ -59,7 +146,7 @@ document.querySelectorAll('#ratingsPills .pill-btn').forEach(btn => {
   });
 });
 
-// ── Status filter toggle — re-render on change ───────────────────────────
+// ── Status filter toggle ─────────────────────────────────────────────────
 function toggleFilter(type) {
   if (type === 'perm') {
     filterPerm = !filterPerm;
@@ -71,23 +158,36 @@ function toggleFilter(type) {
   if (allClosed.length > 0) applyFiltersAndRender();
 }
 
-// ── Apply all display filters and re-render ───────────────────────────────
+// ── Apply filters, sort, and render ──────────────────────────────────────
 function applyFiltersAndRender() {
-  const filtered = allClosed.filter(p => {
-    // Status filter
+  let filtered = allClosed.filter(p => {
     const s = p.business_status;
     const statusOk = (filterPerm && s === 'CLOSED_PERMANENTLY') ||
                      (filterTemp && s === 'CLOSED_TEMPORARILY');
     if (!statusOk) return false;
-
-    // Ratings filter — treat missing/undefined as 0
     const ratingCount = (p.user_ratings_total != null && !isNaN(p.user_ratings_total))
-      ? Number(p.user_ratings_total)
-      : 0;
+      ? Number(p.user_ratings_total) : 0;
     return ratingCount >= filterMinRatings;
   });
 
-  // Update stats to reflect current filter view
+  // Sort
+  if (sortMode === 'stagnant') {
+    filtered = filtered.slice().sort((a, b) => {
+      const sa = getStagnancyScore(a.place_id);
+      const sb = getStagnancyScore(b.place_id);
+      // Untracked places go to the end
+      if (sa === -1 && sb === -1) return 0;
+      if (sa === -1) return 1;
+      if (sb === -1) return -1;
+      if (sa !== sb) return sa - sb; // lower score = more stagnant = first
+      // Tie-break: more runs = more confident signal, show first
+      const ra = currentHistory[a.place_id]?.snaps.length || 0;
+      const rb = currentHistory[b.place_id]?.snaps.length || 0;
+      return rb - ra;
+    });
+  }
+
+  // Update stats
   const permCount = filtered.filter(p => p.business_status === 'CLOSED_PERMANENTLY').length;
   const tempCount = filtered.filter(p => p.business_status === 'CLOSED_TEMPORARILY').length;
   document.getElementById('statTotal').textContent = filtered.length;
@@ -125,7 +225,7 @@ function geocodeArea(query) {
       { address: query + ', Chennai, Tamil Nadu, India' },
       (results, status) => {
         if (status === 'OK' && results[0]) resolve(results[0].geometry.location);
-        else reject(new Error(`Could not locate "${query}" in Chennai. Try a different name or pincode.`));
+        else reject(new Error(`Could not locate "${query}" in Chennai.`));
       }
     );
   });
@@ -144,11 +244,9 @@ const M_PER_LNG = 107900;
 function buildGridPoints(center, totalRadius) {
   const { grid, subRadius } = GRID_CONFIG[totalRadius] || GRID_CONFIG[1000];
   if (grid === 1) return [center];
-
   const spacing = subRadius * 0.75;
   const half    = Math.floor(grid / 2);
   const points  = [];
-
   for (let row = -half; row <= half; row++) {
     for (let col = -half; col <= half; col++) {
       const distM = Math.sqrt(Math.pow(row * spacing, 2) + Math.pow(col * spacing, 2));
@@ -168,14 +266,11 @@ function nearbySearchOnePoint(location, radius, type) {
   return new Promise((resolve) => {
     apiCallCount++;
     const allPlaces = [];
-
     function handlePage(results, status, pagination) {
       if (status === google.maps.places.PlacesServiceStatus.OK && results) {
         allPlaces.push(...results);
         if (pagination && pagination.hasNextPage) {
           apiCallCount++;
-          // Must pass handlePage explicitly — nextPage() without a callback
-          // silently drops pages 2 and 3
           setTimeout(() => pagination.nextPage(handlePage), 2200);
         } else {
           resolve(allPlaces);
@@ -184,7 +279,6 @@ function nearbySearchOnePoint(location, radius, type) {
         resolve(allPlaces);
       }
     }
-
     placesService.nearbySearch({ location, radius, type }, handlePage);
   });
 }
@@ -238,7 +332,6 @@ async function startSearch() {
 
     setProgress(88, 'Deduplicating…');
 
-    // Deduplicate by place_id
     const seen = new Set();
     const deduped = allRaw.filter(p => {
       if (seen.has(p.place_id)) return false;
@@ -246,24 +339,24 @@ async function startSearch() {
       return true;
     });
 
-    // Strict type filter — discard anything not actually a restaurant/cafe/ice cream shop
     const TARGET_TYPES = new Set(['restaurant', 'cafe', 'ice_cream_shop']);
-    const typed = deduped.filter(p =>
-      (p.types || []).some(t => TARGET_TYPES.has(t))
-    );
+    const typed = deduped.filter(p => (p.types || []).some(t => TARGET_TYPES.has(t)));
 
-    // Keep only closed venues — NO ratings filter here, that is applied at render time
     allClosed = typed.filter(p => {
       const s = p.business_status;
       return s === 'CLOSED_PERMANENTLY' || s === 'CLOSED_TEMPORARILY';
     });
+
+    // Record snapshot for all found venues
+    setProgress(94, 'Recording history snapshot…');
+    recordAndDiff(allClosed);
+    updateHistoryBadge();
 
     setProgress(100, `Found ${allClosed.length} closed venue${allClosed.length !== 1 ? 's' : ''}.`);
 
     document.getElementById('statCalls').textContent = apiCallCount;
     document.getElementById('statsBar').classList.add('visible');
 
-    // Apply display filters (status + ratings) and render
     applyFiltersAndRender();
 
   } catch (err) {
@@ -275,6 +368,63 @@ async function startSearch() {
   }
 }
 
+// ── Build delta row HTML ──────────────────────────────────────────────────
+function buildDeltaHtml(place) {
+  const snap = currentHistory[place.place_id];
+  if (!snap || snap.snaps.length === 0) return '';
+
+  const d = getDelta(place.place_id);
+
+  if (!d) {
+    // First time this venue was seen
+    const cur = snap.snaps[0];
+    return `
+      <div class="card-delta delta-new">
+        <span class="delta-stat">
+          <span class="delta-icon">📸</span>
+          <span class="delta-val">${cur.photos} photo refs</span>
+        </span>
+        <span class="delta-dot">·</span>
+        <span class="delta-stat">
+          <span class="delta-icon">⭐</span>
+          <span class="delta-val">${cur.ratings.toLocaleString()} ratings</span>
+        </span>
+        <span class="delta-badge badge-new">First scan</span>
+      </div>`;
+  }
+
+  // Has previous snapshot — show delta
+  const pDelta = d.photoDelta;
+  const rDelta = d.ratingsDelta;
+  const isStagnant = pDelta === 0 && rDelta === 0;
+
+  const pClass = pDelta > 0 ? 'dval-up' : 'dval-zero';
+  const rClass = rDelta > 0 ? 'dval-up' : 'dval-zero';
+  const pStr   = pDelta > 0 ? `+${pDelta}` : '±0';
+  const rStr   = rDelta > 0 ? `+${rDelta}` : '±0';
+
+  // Note: Places API caps photo refs at 10, so 10→10 is expected for active venues
+  const photoNote = d.curPhotos >= 10 ? '≥10' : `${d.curPhotos}`;
+
+  return `
+    <div class="card-delta ${isStagnant ? 'delta-stagnant' : 'delta-active'}">
+      <span class="delta-stat">
+        <span class="delta-icon">📸</span>
+        <span class="delta-val">${d.prevPhotos}→${photoNote}</span>
+        <span class="${pClass}">(${pStr})</span>
+      </span>
+      <span class="delta-dot">·</span>
+      <span class="delta-stat">
+        <span class="delta-icon">⭐</span>
+        <span class="${rClass}">${rStr} ratings</span>
+      </span>
+      <span class="delta-meta">${d.runCount} runs · ${d.daysSince}d gap</span>
+      ${isStagnant
+        ? `<span class="delta-badge badge-stagnant">No activity</span>`
+        : `<span class="delta-badge badge-active">Active</span>`}
+    </div>`;
+}
+
 // ── Render cards ──────────────────────────────────────────────────────────
 function renderCards(data) {
   const grid = document.getElementById('resultsGrid');
@@ -282,9 +432,8 @@ function renderCards(data) {
 
   if (data.length === 0) {
     showState('empty');
-    const minR = filterMinRatings;
     document.getElementById('emptySubText').textContent = allClosed.length > 0
-      ? `No venues match the current filters. ${allClosed.length} closed venue${allClosed.length !== 1 ? 's' : ''} found total — try loosening the Min. Ratings filter.`
+      ? `No venues match the current filters. ${allClosed.length} closed venue${allClosed.length !== 1 ? 's' : ''} found total — try loosening filters.`
       : 'No closed venues found here. Try a wider radius or different area.';
     return;
   }
@@ -298,6 +447,7 @@ function renderCards(data) {
     const mapsUrl     = `https://www.google.com/maps/place/?q=place_id:${place.place_id}`;
     const typeLabel   = getReadableType(place.types);
     const ratingCount = (place.user_ratings_total != null) ? Number(place.user_ratings_total) : 0;
+    const deltaHtml   = buildDeltaHtml(place);
 
     const card = document.createElement('div');
     card.className = `venue-card ${isPerm ? 'perm' : 'temp'}`;
@@ -339,6 +489,7 @@ function renderCards(data) {
           </a>
         </div>
       </div>
+      ${deltaHtml}
     `;
     grid.appendChild(card);
   });
@@ -352,14 +503,12 @@ function filterTable() {
   });
 }
 
-// ── Export KML (for Google My Maps import) ────────────────────────────────
+// ── Export KML ────────────────────────────────────────────────────────────
 function exportKML() {
   const visible = getVisiblePlaces();
   if (!visible.length) return;
 
-  const areaName = document.getElementById('areaInput').value.trim() || 'Closed Venues';
-
-  // Icon URLs — Google My Maps renders these correctly
+  const areaName  = document.getElementById('areaInput').value.trim() || 'Closed Venues';
   const ICON_PERM = 'http://maps.google.com/mapfiles/ms/icons/red-dot.png';
   const ICON_TEMP = 'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png';
 
@@ -371,9 +520,13 @@ function exportKML() {
     const status  = isPerm ? 'Permanently Closed' : 'Temporarily Closed';
     const mapsUrl = `https://www.google.com/maps/place/?q=place_id:${p.place_id}`;
     const icon    = isPerm ? ICON_PERM : ICON_TEMP;
-
-    // Skip if no coordinates (shouldn't happen but be safe)
     if (lat === '' || lng === '') return '';
+
+    // Include delta info in KML description
+    const d = getDelta(p.place_id);
+    const deltaNote = d
+      ? `Runs tracked: ${d.runCount} | Photo refs: ${d.prevPhotos}→${d.curPhotos} | Ratings Δ: ${d.ratingsDelta >= 0 ? '+' : ''}${d.ratingsDelta}`
+      : 'First scan — no delta yet';
 
     return `
     <Placemark>
@@ -382,17 +535,12 @@ function exportKML() {
         <b>${escapeXml(p.name)}</b><br/>
         ${escapeXml(p.vicinity || '')} <br/><br/>
         Status: <b>${status}</b><br/>
-        ${rating}<br/><br/>
+        ${rating}<br/>
+        ${deltaNote}<br/><br/>
         <a href="${mapsUrl}" target="_blank">Open in Google Maps</a>
       ]]></description>
-      <Style>
-        <IconStyle>
-          <Icon><href>${icon}</href></Icon>
-        </IconStyle>
-      </Style>
-      <Point>
-        <coordinates>${lng},${lat},0</coordinates>
-      </Point>
+      <Style><IconStyle><Icon><href>${icon}</href></Icon></IconStyle></Style>
+      <Point><coordinates>${lng},${lat},0</coordinates></Point>
     </Placemark>`;
   }).filter(Boolean).join('\n');
 
@@ -400,7 +548,7 @@ function exportKML() {
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
     <name>${escapeXml(areaName)} — Closed Venues</name>
-    <description>Closed restaurants, cafes and coffee shops in ${escapeXml(areaName)}, Chennai. Generated by Venue Scout.</description>
+    <description>Closed restaurants, cafes and coffee shops in ${escapeXml(areaName)}, Chennai.</description>
     ${placemarks}
   </Document>
 </kml>`;
@@ -410,33 +558,32 @@ function exportKML() {
   a.href     = URL.createObjectURL(blob);
   a.download = `${areaName.replace(/\s+/g, '_')}_closed_venues.kml`;
   a.click();
-
-  // Show import instructions banner
   document.getElementById('importBanner').classList.add('visible');
 }
 
 function escapeXml(str) {
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }
 
-// ── Shared helper: get currently visible places ───────────────────────────
+// ── Shared helper ─────────────────────────────────────────────────────────
 function getVisiblePlaces() {
   return [...document.querySelectorAll('.venue-card')]
     .filter(c => c.style.display !== 'none')
     .map(c => allClosed.find(p => (p.name || '').toLowerCase() === c.dataset.name))
     .filter(Boolean);
 }
+
 function exportCSV() {
   const visible = getVisiblePlaces();
   if (!visible.length) return;
 
-  const rows = [['Name', 'Address', 'Type', 'Status', 'Rating', 'Total Ratings', 'Place ID', 'Maps URL']];
+  const rows = [['Name', 'Address', 'Type', 'Status', 'Rating', 'Total Ratings',
+                  'Photo Refs (cur)', 'Photo Delta', 'Ratings Delta', 'Runs Tracked',
+                  'Place ID', 'Maps URL']];
   visible.forEach(p => {
+    const d = getDelta(p.place_id);
     rows.push([
       `"${p.name}"`,
       `"${p.vicinity || ''}"`,
@@ -444,10 +591,15 @@ function exportCSV() {
       p.business_status,
       p.rating || '',
       p.user_ratings_total || '',
+      d ? d.curPhotos   : (p.photos?.length ?? 0),
+      d ? d.photoDelta  : 'N/A',
+      d ? d.ratingsDelta: 'N/A',
+      d ? d.runCount    : 1,
       p.place_id,
       `"https://www.google.com/maps/place/?q=place_id:${p.place_id}"`
     ]);
   });
+
   const csv  = rows.map(r => r.join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const a    = document.createElement('a');
