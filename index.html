@@ -73,13 +73,14 @@
           <button class="pill-btn" data-val="100">100+</button>
         </div>
       </div>
-      <div class="pill-group">
-        <button class="pill-btn status-pill active perm-pill" id="pillPerm" onclick="toggleFilter('perm')">
-          <span class="sdot sdot-red"></span> Permanently Closed
-        </button>
-        <button class="pill-btn status-pill active temp-pill" id="pillTemp" onclick="toggleFilter('temp')">
-          <span class="sdot sdot-amber"></span> Temporarily Closed
-        </button>
+        <div class="pill-group">
+          <button class="pill-btn status-pill active perm-pill" id="pillPerm" onclick="toggleFilter('perm')">
+            <span class="sdot sdot-red"></span> Permanently Closed
+          </button>
+          <button class="pill-btn status-pill active temp-pill" id="pillTemp" onclick="toggleFilter('temp')">
+            <span class="sdot sdot-amber"></span> Temporarily Closed
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -88,8 +89,6 @@
 <!-- STATS BAR (hidden until results) -->
 <div class="stats-bar" id="statsBar">
   <div class="stats-inner">
-
-    <!-- Counts -->
     <div class="stat-item">
       <span class="stat-num" id="statTotal">0</span>
       <span class="stat-desc">Total Found</span>
@@ -109,55 +108,21 @@
       <span class="stat-num muted" id="statCalls">0</span>
       <span class="stat-desc">API Calls</span>
     </div>
-
-    <!-- Right-side controls -->
     <div class="stats-actions">
-
-      <!-- Sort -->
-      <div class="stats-control-group">
-        <span class="stats-control-label">Sort</span>
-        <div class="pill-group">
-          <button class="pill-btn active" id="sortDefault" onclick="setSort('default')">Default</button>
-          <button class="pill-btn" id="sortStagnant" onclick="setSort('stagnant')">
-            <span class="sdot sdot-red" style="opacity:0.7"></span>
-            Stagnant First
-          </button>
-        </div>
-      </div>
-
-      <div class="stat-div"></div>
-
-      <!-- History badge + clear -->
-      <div class="stats-control-group">
-        <span class="stats-control-label">History</span>
-        <span class="history-badge" id="historyBadge">0 tracked</span>
-        <button class="clear-history-btn" onclick="clearHistory()" title="Clear all scan history">
-          <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
-            <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
-          </svg>
-          Clear
-        </button>
-      </div>
-
-      <div class="stat-div"></div>
-
-      <!-- Search + Export -->
       <input type="text" id="tableSearch" class="filter-input" placeholder="Filter results…" oninput="filterTable()" />
-      <button class="export-btn" id="exportBtn" onclick="exportCSV()" style="display:none">
+      <button class="export-btn" id="exportBtn" onclick="exportCSV()">
         <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
         </svg>
         Export CSV
       </button>
-      <button class="export-btn kml-btn" id="exportKmlBtn" onclick="exportKML()" style="display:none">
+      <button class="export-btn kml-btn" id="exportKmlBtn" onclick="exportKML()">
         <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>
         </svg>
         Export for My Maps
       </button>
     </div>
-
   </div>
 </div>
 
