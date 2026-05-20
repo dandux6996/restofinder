@@ -191,7 +191,7 @@ function nearbySearchOnePoint(location, radius, type) {
 
 // ── Type label ────────────────────────────────────────────────────────────
 function getReadableType(types) {
-  const nice = ['restaurant', 'cafe', 'bar', 'bakery', 'ice_cream_shop', 'food', 'meal_takeaway', 'meal_delivery'];
+  const nice = ['meal_delivery', 'meal_takeaway'];
   const found = (types || []).filter(t => nice.includes(t));
   return (found[0] || types?.[0] || 'venue').replace(/_/g, ' ');
 }
@@ -222,7 +222,7 @@ async function startSearch() {
 
     const gridPoints = buildGridPoints(center, selectedRadius);
     const { subRadius } = GRID_CONFIG[selectedRadius] || GRID_CONFIG[1000];
-    const types  = ['restaurant', 'cafe', 'ice_cream_shop'];
+    const types  = ['meal_delivery', 'meal_takeaway'];
     const allRaw = [];
     const total  = gridPoints.length * types.length;
     let   done   = 0;
@@ -247,7 +247,7 @@ async function startSearch() {
     });
 
     // Strict type filter — discard anything not actually a restaurant/cafe/ice cream shop
-    const TARGET_TYPES = new Set(['restaurant', 'cafe', 'ice_cream_shop']);
+    const TARGET_TYPES = new Set(['meal_delivery', 'meal_takeaway']);
     const typed = deduped.filter(p =>
       (p.types || []).some(t => TARGET_TYPES.has(t))
     );
